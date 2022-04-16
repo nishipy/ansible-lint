@@ -67,6 +67,7 @@ from ansiblelint.config import options
 from ansiblelint.constants import NESTED_TASK_KEYS, PLAYBOOK_TASK_KEYWORDS, FileType
 from ansiblelint.errors import MatchError
 from ansiblelint.file_utils import Lintable, discover_lintables
+from ansiblelint.skip_utils import append_skipped_rules
 from ansiblelint.text import removeprefix
 
 # ansible-lint doesn't need/want to know about encrypted secrets, so we pass a
@@ -877,32 +878,73 @@ def nested_items(
                 yield k, v, returned_parent
 
 
-def add_block_matcherror_to_matches(
+def get_nested_matcherror(
     file: Lintable,
-    block: Dict[str, Any],
     matchtask: Callable[[Dict[str, Any], Optional[Lintable]], Union[bool, str]],
     create_matcherror: Callable[
         [Optional[str], int, str, Union[str, Lintable, None], str], MatchError
     ],
-    matches: List[MatchError],
-) -> None:
-    """Evaluate blocks in a playbook and add matcherrors of them to matches."""
-    block_result = matchtask(block, file)
-    if not block_result:
-        return
+) -> List[MatchError]:
+    """Evaluate nested tasks and return their matches."""
+    nested_matches: List[MatchError] = []
+    tasks = _flatten_nested_tasks(file)
+    for task in tasks:
+        if "action" not in task:
+            include_nested_task_key = _include_nested_task_key(task)
+            if not include_nested_task_key:
+                if "__ansible_action_type__" in task:
+                    del task["__ansible_action_type__"]
+                task = normalize_task_v2(task)
+        try:
+            result = matchtask(task, file)
+        except Exception:  # pylint: disable=broad-except
+            continue
 
-    message = None
-    if isinstance(block_result, str):
-        message = block_result
+        if not result:
+            return nested_matches
 
-    block_msg = "Block: " + task_to_str(block)
-    match = create_matcherror(
-        message,
-        block[LINE_NUMBER_KEY],
-        block_msg,
-        file,
-        "",
-    )
-    match.task = block
-    if isinstance(match, MatchError):
-        matches.append(match)
+        message = None
+        if isinstance(result, str):
+            message = result
+
+        task_msg = "Block/Always/Rescue: " + task_to_str(task)
+        match = create_matcherror(
+            message,
+            task[LINE_NUMBER_KEY],
+            task_msg,
+            file,
+            "",
+        )
+        match.task = task
+        if isinstance(match, MatchError):
+            nested_matches.append(match)
+
+    return nested_matches
+
+
+def _flatten_nested_tasks(file: "Lintable") -> List[Dict[str, Any]]:
+    """Flatten nested tasks."""
+    tasks: List[Dict[str, Any]] = []
+    data = parse_yaml_linenumbers(file)
+    if not data:
+        return tasks
+
+    data = append_skipped_rules(data, file)
+    if file.kind in ["tasks", "handlers"]:
+        tasks = add_action_type(data, file.kind)
+    else:
+        tasks.extend(extract_from_list(data, PLAYBOOK_TASK_KEYWORDS))
+
+    tasks.extend(extract_from_list(tasks, NESTED_TASK_KEYS, recursive=True))
+
+    return tasks
+
+
+def _include_nested_task_key(task: Dict[str, Any]) -> bool:
+    """Check if task include NESTED_TASK_KEYS."""
+    include_nested_task_key = False
+    for key in NESTED_TASK_KEYS:
+        if task.get(key):
+            include_nested_task_key = True
+
+    return include_nested_task_key

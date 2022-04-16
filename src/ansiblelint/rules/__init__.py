@@ -36,6 +36,7 @@ from ansiblelint._internal.rules import (
 )
 from ansiblelint.config import get_rule_config
 from ansiblelint.config import options as default_options
+from ansiblelint.constants import NESTED_TASK_KEYS, PLAYBOOK_TASK_KEYWORDS
 from ansiblelint.errors import MatchError
 from ansiblelint.file_utils import Lintable, expand_paths_vars
 from ansiblelint.skip_utils import (
@@ -180,14 +181,13 @@ class AnsibleLintRule(BaseRule):
             match.task = task
             matches.append(match)
 
-        # If playbook contains blocks in pre_tasks/tasks/post_tasks
-        if self.needs_block and file.kind == "playbook":
-            data = ansiblelint.utils.parse_yaml_linenumbers(file)
-            block_list = _get_task_blocks_from_playbook(data)
-            for block in block_list:
-                ansiblelint.utils.add_block_matcherror_to_matches(
-                    file, block, self.matchtask, self.create_matcherror, matches
-                )
+        # Handling nested statements
+        nested_matches = ansiblelint.utils.get_nested_matcherror(
+            file,
+            self.matchtask,
+            self.create_matcherror,
+        )
+        matches.extend(nested_matches)
 
         return matches
 
