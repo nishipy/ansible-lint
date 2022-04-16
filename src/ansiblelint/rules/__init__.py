@@ -186,6 +186,7 @@ class AnsibleLintRule(BaseRule):
             file,
             self.matchtask,
             self.create_matcherror,
+            self.id,
         )
         matches.extend(nested_matches)
 

@@ -125,7 +125,7 @@ def iter_tasks_in_file(
 
     for raw_task in raw_tasks:
         err: Optional[MatchError] = None
-
+        print("RAWTASKS: ", raw_task)
         # An empty `tags` block causes `None` to be returned if
         # the `or []` is not present - `task.get('tags', [])`
         # does not suffice.

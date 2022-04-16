@@ -884,20 +884,23 @@ def get_nested_matcherror(
     create_matcherror: Callable[
         [Optional[str], int, str, Union[str, Lintable, None], str], MatchError
     ],
+    rule_id: str,
 ) -> List[MatchError]:
     """Evaluate nested tasks and return their matches."""
     nested_matches: List[MatchError] = []
     tasks = _flatten_nested_tasks(file)
     for task in tasks:
         if "action" not in task:
-            include_nested_task_key = _include_nested_task_key(task)
-            if not include_nested_task_key:
-                if "__ansible_action_type__" in task:
-                    del task["__ansible_action_type__"]
-                task = normalize_task_v2(task)
+            task = _normalize_task(task)
         try:
             result = matchtask(task, file)
         except Exception:  # pylint: disable=broad-except
+            continue
+
+        skipped_in_task_tag = "skip_ansible_lint" in (task.get("tags") or [])
+        skipped_in_yaml_comment = rule_id in task.get("skipped_rules", ())
+        skipped = skipped_in_task_tag or skipped_in_yaml_comment
+        if skipped:
             continue
 
         if not result:
@@ -907,7 +910,7 @@ def get_nested_matcherror(
         if isinstance(result, str):
             message = result
 
-        task_msg = "Block/Always/Rescue: " + task_to_str(task)
+        task_msg = "Task/Handler: " + task_to_str(task)
         match = create_matcherror(
             message,
             task[LINE_NUMBER_KEY],
@@ -948,3 +951,13 @@ def _include_nested_task_key(task: Dict[str, Any]) -> bool:
             include_nested_task_key = True
 
     return include_nested_task_key
+
+
+def _normalize_task(task: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize task."""
+    if not _include_nested_task_key(task):
+        if "__ansible_action_type__" in task:
+            del task["__ansible_action_type__"]
+        task = normalize_task_v2(task)
+
+    return task
