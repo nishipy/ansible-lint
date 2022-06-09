@@ -78,6 +78,7 @@ Looping inside roles has the risk of clashing with loops from user-playbooks.\
             loop_control = task.get("loop_control", {})
             loop_var = loop_control.get("loop_var", "")
 
+            # if loop_var and not loop_var.startswith(self.prefix):
             if not loop_var or not loop_var.startswith(self.prefix):
                 results.append(
                     self.create_matcherror(
